@@ -1,198 +1,216 @@
+from base64 import b64encode
+from collections import defaultdict
+from datetime import datetime
+from html import escape
 from io import BytesIO
-import os
-from pathlib import Path
-import tempfile
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 import streamlit as st
 
-import recognition
+import galeria
 
 
-# Banco local com nomes e codificações faciais. Não salvamos as fotos originais.
-ARQUIVO_DADOS = Path("data/rostos.npz")
-LIMIAR_RECONHECIMENTO = 0.5
+MESES = (
+    "janeiro",
+    "fevereiro",
+    "março",
+    "abril",
+    "maio",
+    "junho",
+    "julho",
+    "agosto",
+    "setembro",
+    "outubro",
+    "novembro",
+    "dezembro",
+)
 
 
-def ler_imagem(arquivo_enviado) -> np.ndarray:
-    imagem = Image.open(arquivo_enviado)
-    # Corrige a orientação gravada pela câmera antes de analisar o rosto.
-    imagem = ImageOps.exif_transpose(imagem).convert("RGB")
-    return np.asarray(imagem)
+@st.cache_data(show_spinner=False)
+def criar_miniatura(caminho: str) -> str:
+    """Cria uma versão leve da foto para a grade da galeria."""
+    with Image.open(caminho) as imagem:
+        imagem = ImageOps.exif_transpose(imagem).convert("RGB")
+        imagem = ImageOps.fit(imagem, (520, 360))
+        memoria = BytesIO()
+        imagem.save(memoria, format="JPEG", quality=82)
+    return b64encode(memoria.getvalue()).decode("ascii")
 
 
-def carregar_rostos() -> tuple[list[str], np.ndarray]:
-    if not ARQUIVO_DADOS.exists():
-        return [], np.empty((0, 128), dtype=np.float64)
+def criar_imagem_anotada(foto: dict) -> Image.Image:
+    caminho = galeria.caminho_da_imagem(foto)
+    with Image.open(caminho) as original:
+        imagem = ImageOps.exif_transpose(original).convert("RGB")
 
-    with np.load(ARQUIVO_DADOS, allow_pickle=False) as dados:
-        return dados["names"].tolist(), dados["encodings"]
+    desenho = ImageDraw.Draw(imagem)
+    fonte = ImageFont.load_default(size=18)
 
-
-def salvar_rostos(nomes: list[str], codificacoes: np.ndarray) -> None:
-    ARQUIVO_DADOS.parent.mkdir(parents=True, exist_ok=True)
-    memoria = BytesIO()
-    np.savez_compressed(
-        memoria, names=np.asarray(nomes), encodings=codificacoes
-    )
-
-    # Primeiro grava em arquivo temporário para evitar um banco incompleto.
-    with tempfile.NamedTemporaryFile(
-        dir=ARQUIVO_DADOS.parent, delete=False
-    ) as arquivo_temporario:
-        arquivo_temporario.write(memoria.getvalue())
-        caminho_temporario = arquivo_temporario.name
-    os.replace(caminho_temporario, ARQUIVO_DADOS)
-
-
-def excluir_pessoa(
-    pessoa: str, nomes: list[str], codificacoes: np.ndarray
-) -> tuple[list[str], np.ndarray]:
-    # Uma pessoa pode ter várias fotos e todas são removidas juntas.
-    manter = np.asarray([nome != pessoa for nome in nomes])
-    return [nome for nome in nomes if nome != pessoa], codificacoes[manter]
-
-
-def identificar(
-    codificacao: np.ndarray,
-    nomes: list[str],
-    codificacoes_conhecidas: np.ndarray,
-) -> str:
-    if not nomes:
-        return "Desconhecido"
-
-    distancias = recognition.calcular_distancias(
-        codificacoes_conhecidas, codificacao
-    )
-    melhor_indice = int(np.argmin(distancias))
-    if distancias[melhor_indice] <= LIMIAR_RECONHECIMENTO:
-        return nomes[melhor_indice]
-    return "Desconhecido"
-
-
-def criar_imagem_anotada(
-    imagem: np.ndarray,
-    localizacoes: list[tuple[int, int, int, int]],
-    rotulos: list[str],
-) -> Image.Image:
-    resultado = Image.fromarray(imagem).copy()
-    desenho = ImageDraw.Draw(resultado)
-    fonte = ImageFont.load_default(size=16)
-
-    for (topo, direita, base, esquerda), rotulo in zip(localizacoes, rotulos):
+    for indice, rosto in enumerate(foto["rostos"]):
+        topo, direita, base, esquerda = rosto["localizacao"]
+        rotulo = rosto.get("nome") or f"Rosto {indice + 1}"
         desenho.rectangle(
             (esquerda, topo, direita, base), outline="#22c55e", width=4
         )
-        caixa_texto = desenho.textbbox((esquerda, base), rotulo, font=fonte)
+        caixa = desenho.textbbox((esquerda, base), rotulo, font=fonte)
         desenho.rectangle(
-            (
-                caixa_texto[0] - 4,
-                caixa_texto[1] - 3,
-                caixa_texto[2] + 4,
-                caixa_texto[3] + 3,
-            ),
+            (caixa[0] - 4, caixa[1] - 3, caixa[2] + 4, caixa[3] + 3),
             fill="#22c55e",
         )
         desenho.text((esquerda, base), rotulo, fill="white", font=fonte)
 
-    return resultado
+    return imagem
 
 
-st.set_page_config(page_title="Reconhecimento facial", page_icon="👤")
-st.title("Reconhecimento facial")
-st.caption("Cadastre uma pessoa e reconheça-a em novas fotos.")
+def mostrar_detalhes(foto: dict, catalogo: list[dict]) -> None:
+    if st.button("Voltar à galeria"):
+        st.query_params.clear()
+        st.rerun()
 
-nomes, codificacoes_conhecidas = carregar_rostos()
-aba_cadastro, aba_reconhecimento = st.tabs(["Cadastrar", "Reconhecer"])
+    st.subheader(foto.get("nome_original", "Foto"))
+    st.image(criar_imagem_anotada(foto), width="stretch")
 
-with aba_cadastro:
-    if pessoa_excluida := st.session_state.pop("pessoa_excluida", None):
-        st.success(f"O cadastro de {pessoa_excluida} foi apagado.")
+    if mensagem := st.session_state.pop("mensagem_nome", None):
+        st.success(mensagem)
 
-    nome = st.text_input("Nome da pessoa")
-    arquivo_cadastro = st.file_uploader(
-        "Foto para cadastro",
-        type=["jpg", "jpeg", "png", "webp"],
-        key="cadastro",
+    if not foto["rostos"]:
+        st.warning("Nenhum rosto foi encontrado nesta imagem.")
+        return
+
+    st.markdown("### Identificar pessoa")
+    indices = list(range(len(foto["rostos"])))
+    indice_rosto = st.selectbox(
+        "Rosto",
+        indices,
+        format_func=lambda indice: foto["rostos"][indice].get("nome")
+        or f"Rosto {indice + 1}",
+    )
+    nome_atual = foto["rostos"][indice_rosto].get("nome") or ""
+    nome = st.text_input(
+        "Nome da pessoa",
+        value=nome_atual,
+        key=f"nome_{foto['id']}_{indice_rosto}",
     )
 
-    if st.button(
-        "Cadastrar pessoa",
-        type="primary",
-        disabled=not (nome.strip() and arquivo_cadastro),
-    ):
-        imagem = ler_imagem(arquivo_cadastro)
-        localizacoes = recognition.localizar_rostos(imagem)
+    if st.button("Salvar nome", type="primary", disabled=not nome.strip()):
+        quantidade, codificacao = galeria.nomear_rosto(
+            catalogo, foto["id"], indice_rosto, nome.strip()
+        )
+        galeria.salvar_catalogo(catalogo)
+        galeria.adicionar_rosto_conhecido(nome.strip(), codificacao)
+        st.session_state.mensagem_nome = (
+            f"Nome aplicado a {quantidade} rosto(s) semelhante(s)."
+        )
+        st.rerun()
 
-        if len(localizacoes) != 1:
-            st.error("A foto precisa conter exatamente um rosto visível.")
-        else:
-            codificacao = recognition.codificar_rostos(imagem, localizacoes)[0]
-            nomes_atualizados = [*nomes, nome.strip()]
-            codificacoes_atualizadas = np.vstack(
-                (codificacoes_conhecidas, codificacao)
-            )
-            salvar_rostos(nomes_atualizados, codificacoes_atualizadas)
-            st.success(f"{nome.strip()} foi cadastrado(a).")
-            st.rerun()
 
-    if nomes:
-        st.caption(
-            f"{len(nomes)} foto(s) cadastrada(s) para "
-            f"{len(set(nomes))} pessoa(s)."
+def mostrar_grade(catalogo: list[dict]) -> None:
+    if not catalogo:
+        st.info("Adicione imagens para começar a galeria.")
+        return
+
+    fotos_por_mes = defaultdict(list)
+    for foto in catalogo:
+        data = datetime.fromisoformat(foto["data"])
+        fotos_por_mes[(data.year, data.month)].append(foto)
+
+    for ano, mes in sorted(fotos_por_mes, reverse=True):
+        st.subheader(f"{MESES[mes - 1].capitalize()} de {ano}")
+        colunas = st.columns(4)
+        fotos = sorted(
+            fotos_por_mes[(ano, mes)], key=lambda item: item["data"], reverse=True
         )
 
-    with st.expander("Gerenciar cadastros"):
-        if not nomes:
-            st.info("Nenhuma pessoa cadastrada.")
-        else:
-            pessoa_selecionada = st.selectbox("Pessoa", sorted(set(nomes)))
-            quantidade_fotos = nomes.count(pessoa_selecionada)
-            st.caption(
-                f"Isto apagará {quantidade_fotos} foto(s) cadastrada(s) "
-                f"para {pessoa_selecionada}."
+        for indice, foto in enumerate(fotos):
+            caminho = galeria.caminho_da_imagem(foto)
+            nomes = sorted(
+                {rosto["nome"] for rosto in foto["rostos"] if rosto.get("nome")}
             )
-            exclusao_confirmada = st.checkbox(
-                f"Confirmo que desejo apagar {pessoa_selecionada}",
-                key=f"confirmar_exclusao_{pessoa_selecionada}",
-            )
+            legenda = ", ".join(nomes) if nomes else "Sem identificação"
 
-            if st.button(
-                "Apagar cadastro",
-                disabled=not exclusao_confirmada,
-                key="excluir_pessoa",
-            ):
-                nomes, codificacoes_conhecidas = excluir_pessoa(
-                    pessoa_selecionada, nomes, codificacoes_conhecidas
+            with colunas[indice % 4]:
+                miniatura = criar_miniatura(str(caminho))
+                # O link usa um parâmetro da própria página para abrir a foto.
+                st.markdown(
+                    f"""
+                    <a class="cartao-foto" href="?foto={foto['id']}" target="_self">
+                        <img src="data:image/jpeg;base64,{miniatura}"
+                             alt="{escape(foto.get('nome_original', 'Foto'))}">
+                    </a>
+                    """,
+                    unsafe_allow_html=True,
                 )
-                salvar_rostos(nomes, codificacoes_conhecidas)
-                st.session_state.pessoa_excluida = pessoa_selecionada
-                st.rerun()
+                st.caption(legenda)
 
-with aba_reconhecimento:
-    arquivo_reconhecimento = st.file_uploader(
-        "Foto para reconhecer",
+
+st.set_page_config(page_title="Galeria facial", page_icon="📷", layout="wide")
+st.markdown(
+    """
+    <style>
+    .cartao-foto img {
+        width: 100%;
+        aspect-ratio: 13 / 9;
+        object-fit: cover;
+        border-radius: 0.65rem;
+        transition: transform 120ms ease, box-shadow 120ms ease;
+    }
+    .cartao-foto img:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 22px rgba(0, 0, 0, 0.18);
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+st.title("Galeria facial")
+st.caption("Organize suas fotos por mês e identifique as pessoas nelas.")
+
+catalogo = galeria.carregar_catalogo()
+identificador_foto = st.query_params.get("foto")
+foto_selecionada = next(
+    (foto for foto in catalogo if foto["id"] == identificador_foto), None
+)
+
+if foto_selecionada:
+    mostrar_detalhes(foto_selecionada, catalogo)
+    st.stop()
+
+if identificador_foto:
+    # Remove da URL um identificador que não existe mais no catálogo.
+    st.query_params.clear()
+
+if mensagem := st.session_state.pop("mensagem_upload", None):
+    st.success(mensagem)
+
+with st.expander("Adicionar fotos", expanded=not catalogo):
+    arquivos = st.file_uploader(
+        "Selecione uma ou mais imagens",
         type=["jpg", "jpeg", "png", "webp"],
-        key="reconhecimento",
+        accept_multiple_files=True,
     )
 
-    if arquivo_reconhecimento:
-        imagem = ler_imagem(arquivo_reconhecimento)
-        localizacoes = recognition.localizar_rostos(imagem)
-        codificacoes = recognition.codificar_rostos(imagem, localizacoes)
+    if st.button("Adicionar à galeria", type="primary", disabled=not arquivos):
+        nomes, codificacoes = galeria.carregar_rostos()
+        adicionadas = 0
+        repetidas = 0
 
-        if not codificacoes:
-            st.warning("Nenhum rosto foi encontrado na foto.")
-        elif not nomes:
-            st.warning("Cadastre ao menos uma pessoa antes de reconhecer.")
-        else:
-            rotulos = [
-                identificar(codificacao, nomes, codificacoes_conhecidas)
-                for codificacao in codificacoes
-            ]
-            st.image(
-                criar_imagem_anotada(imagem, localizacoes, rotulos),
-                width="stretch",
-            )
-            st.write("Identificação: " + ", ".join(rotulos))
+        with st.spinner("Analisando rostos..."):
+            for arquivo in arquivos:
+                foto = galeria.adicionar_imagem(
+                    arquivo, catalogo, nomes, codificacoes
+                )
+                if foto is None:
+                    repetidas += 1
+                else:
+                    catalogo.append(foto)
+                    adicionadas += 1
+
+        galeria.salvar_catalogo(catalogo)
+        mensagem = f"{adicionadas} foto(s) adicionada(s)."
+        if repetidas:
+            mensagem += f" {repetidas} duplicada(s) ignorada(s)."
+        st.session_state.mensagem_upload = mensagem
+        st.rerun()
+
+mostrar_grade(catalogo)

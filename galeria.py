@@ -10,7 +10,7 @@ from uuid import uuid4
 import numpy as np
 from PIL import Image, ImageOps
 
-import recognition
+import reconhecimento_facial
 
 
 DIRETORIO_DADOS = Path("data")
@@ -72,8 +72,8 @@ def adicionar_imagem(
         data_foto = _obter_data_foto(imagem_original)
 
     imagem = ler_imagem(BytesIO(conteudo))
-    localizacoes = recognition.localizar_rostos(imagem)
-    codificacoes = recognition.codificar_rostos(imagem, localizacoes)
+    localizacoes = reconhecimento_facial.localizar_rostos(imagem)
+    codificacoes = reconhecimento_facial.codificar_rostos(imagem, localizacoes)
 
     rostos = []
     for localizacao, codificacao in zip(localizacoes, codificacoes):
@@ -116,7 +116,7 @@ def nomear_rosto(
     for item in catalogo:
         for rosto in item["rostos"]:
             codificacao = np.asarray(rosto["codificacao"])
-            distancia = recognition.calcular_distancias(
+            distancia = reconhecimento_facial.calcular_distancias(
                 np.asarray([codificacao]), codificacao_referencia
             )[0]
             if distancia <= LIMIAR_RECONHECIMENTO:
@@ -150,7 +150,7 @@ def _identificar(
     if not nomes:
         return None
 
-    distancias = recognition.calcular_distancias(
+    distancias = reconhecimento_facial.calcular_distancias(
         codificacoes_conhecidas, codificacao
     )
     melhor_indice = int(np.argmin(distancias))

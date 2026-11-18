@@ -62,14 +62,31 @@ def criar_imagem_anotada(foto: dict) -> Image.Image:
     return imagem
 
 
+def fechar_modal() -> None:
+    st.query_params.clear()
+
+
+@st.dialog(
+    "Identificar pessoas",
+    width="large",
+    on_dismiss=fechar_modal,
+)
 def mostrar_detalhes(foto: dict, catalogo: list[dict]) -> None:
-    if st.button("Voltar à galeria"):
-        st.query_params.clear()
+    st.caption(foto.get("nome_original", "Foto"))
+
+    coluna_imagem, coluna_identificacao = st.columns([3, 2], gap="large")
+    with coluna_imagem:
+        st.image(criar_imagem_anotada(foto), width="stretch")
+
+    with coluna_identificacao:
+        mostrar_formulario_identificacao(foto, catalogo)
+
+    if st.button("Fechar", width="stretch"):
+        fechar_modal()
         st.rerun()
 
-    st.subheader(foto.get("nome_original", "Foto"))
-    st.image(criar_imagem_anotada(foto), width="stretch")
 
+def mostrar_formulario_identificacao(foto: dict, catalogo: list[dict]) -> None:
     if mensagem := st.session_state.pop("mensagem_nome", None):
         st.success(mensagem)
 
@@ -77,7 +94,8 @@ def mostrar_detalhes(foto: dict, catalogo: list[dict]) -> None:
         st.warning("Nenhum rosto foi encontrado nesta imagem.")
         return
 
-    st.markdown("### Identificar pessoa")
+    st.markdown("#### Identificar pessoa")
+    st.caption("Selecione um rosto marcado na imagem e informe o nome.")
     indices = list(range(len(foto["rostos"])))
     indice_rosto = st.selectbox(
         "Rosto",
@@ -172,13 +190,10 @@ foto_selecionada = next(
     (foto for foto in catalogo if foto["id"] == identificador_foto), None
 )
 
-if foto_selecionada:
-    mostrar_detalhes(foto_selecionada, catalogo)
-    st.stop()
-
 if identificador_foto:
-    # Remove da URL um identificador que não existe mais no catálogo.
-    st.query_params.clear()
+    if foto_selecionada is None:
+        # Remove da URL um identificador que não existe mais no catálogo.
+        st.query_params.clear()
 
 if mensagem := st.session_state.pop("mensagem_upload", None):
     st.success(mensagem)
@@ -214,3 +229,6 @@ with st.expander("Adicionar fotos", expanded=not catalogo):
         st.rerun()
 
 mostrar_grade(catalogo)
+
+if foto_selecionada:
+    mostrar_detalhes(foto_selecionada, catalogo)

@@ -133,56 +133,134 @@ def mostrar_grade(catalogo: list[dict]) -> None:
         fotos_por_mes[(data.year, data.month)].append(foto)
 
     for ano, mes in sorted(fotos_por_mes, reverse=True):
-        st.subheader(f"{MESES[mes - 1].capitalize()} de {ano}")
-        colunas = st.columns(4)
         fotos = sorted(
             fotos_por_mes[(ano, mes)], key=lambda item: item["data"], reverse=True
         )
+        quantidade = len(fotos)
+        texto_quantidade = (
+            f"{quantidade} foto" if quantidade == 1 else f"{quantidade} fotos"
+        )
+        st.markdown(
+            f"""
+            <div class="cabecalho-mes">
+                <h2>{MESES[mes - 1].capitalize()} de {ano}</h2>
+                <span>{texto_quantidade}</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        colunas = st.columns(4, gap="medium")
 
         for indice, foto in enumerate(fotos):
             caminho = galeria.caminho_da_imagem(foto)
+            data = datetime.fromisoformat(foto["data"])
             nomes = sorted(
                 {rosto["nome"] for rosto in foto["rostos"] if rosto.get("nome")}
             )
-            legenda = ", ".join(nomes) if nomes else "Sem identificação"
+            legenda = ", ".join(nomes) if nomes else "Não identificado"
 
             with colunas[indice % 4]:
                 miniatura = criar_miniatura(str(caminho))
-                # O link usa um parâmetro da própria página para abrir a foto.
+                # Todo o cartão abre o modal por um parâmetro da própria página.
                 st.markdown(
                     f"""
                     <a class="cartao-foto" href="?foto={foto['id']}" target="_self">
                         <img src="data:image/jpeg;base64,{miniatura}"
                              alt="{escape(foto.get('nome_original', 'Foto'))}">
+                        <span class="conteudo-cartao">
+                            <strong>{escape(legenda)}</strong>
+                            <small>{data.strftime('%d/%m/%Y')}</small>
+                        </span>
                     </a>
                     """,
                     unsafe_allow_html=True,
                 )
-                st.caption(legenda)
 
 
-st.set_page_config(page_title="Galeria facial", page_icon="📷", layout="wide")
+st.set_page_config(page_title="Galeria", page_icon="📷", layout="wide")
 st.markdown(
     """
     <style>
+    .stMainBlockContainer {
+        max-width: 1400px;
+        padding-top: 2.75rem;
+        padding-bottom: 4rem;
+    }
+    h1 {
+        letter-spacing: -0.035em;
+        margin-bottom: 1.75rem !important;
+    }
+    .cabecalho-mes {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 1rem;
+        margin: 2.5rem 0 1rem;
+        padding-bottom: 0.65rem;
+        border-bottom: 1px solid rgba(128, 128, 128, 0.24);
+    }
+    .cabecalho-mes h2 {
+        font-size: 1.35rem;
+        letter-spacing: -0.02em;
+        margin: 0;
+    }
+    .cabecalho-mes span {
+        color: color-mix(in srgb, currentColor 60%, transparent);
+        font-size: 0.88rem;
+        white-space: nowrap;
+    }
+    .cartao-foto {
+        display: block;
+        color: inherit !important;
+        text-decoration: none !important;
+        background: rgba(128, 128, 128, 0.06);
+        border: 1px solid rgba(128, 128, 128, 0.22);
+        border-radius: 0.85rem;
+        overflow: hidden;
+        margin-bottom: 1.15rem;
+        transition: transform 140ms ease, box-shadow 140ms ease,
+                    border-color 140ms ease;
+    }
+    .cartao-foto:hover {
+        transform: translateY(-3px);
+        border-color: rgba(128, 128, 128, 0.42);
+        box-shadow: 0 12px 28px rgba(0, 0, 0, 0.14);
+    }
     .cartao-foto img {
+        display: block;
         width: 100%;
         aspect-ratio: 13 / 9;
         object-fit: cover;
-        border-radius: 0.65rem;
-        transition: transform 120ms ease, box-shadow 120ms ease;
     }
-    .cartao-foto img:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 8px 22px rgba(0, 0, 0, 0.18);
+    .conteudo-cartao {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        min-height: 3.25rem;
+        padding: 0.75rem 0.85rem;
+    }
+    .conteudo-cartao strong {
+        overflow: hidden;
+        font-size: 0.92rem;
+        font-weight: 600;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .conteudo-cartao small {
+        flex: none;
+        color: color-mix(in srgb, currentColor 58%, transparent);
+        font-size: 0.78rem;
+    }
+    [data-testid="stFileUploaderDropzone"] {
+        border-radius: 0.75rem;
     }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-st.title("Galeria facial")
-st.caption("Organize suas fotos por mês e identifique as pessoas nelas.")
+st.title("Galeria")
 
 catalogo = galeria.carregar_catalogo()
 identificador_foto = st.query_params.get("foto")
@@ -198,14 +276,20 @@ if identificador_foto:
 if mensagem := st.session_state.pop("mensagem_upload", None):
     st.success(mensagem)
 
-with st.expander("Adicionar fotos", expanded=not catalogo):
+with st.container(border=True):
+    st.markdown("#### Adicionar fotos")
     arquivos = st.file_uploader(
-        "Selecione uma ou mais imagens",
+        "Arraste ou selecione uma ou mais imagens",
         type=["jpg", "jpeg", "png", "webp"],
         accept_multiple_files=True,
     )
 
-    if st.button("Adicionar à galeria", type="primary", disabled=not arquivos):
+    if st.button(
+        "Adicionar à galeria",
+        type="primary",
+        disabled=not arquivos,
+        width="stretch",
+    ):
         nomes, codificacoes = galeria.carregar_rostos()
         adicionadas = 0
         repetidas = 0

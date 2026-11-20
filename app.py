@@ -122,6 +122,93 @@ def mostrar_formulario_identificacao(foto: dict, catalogo: list[dict]) -> None:
         st.rerun()
 
 
+def limpar_filtros() -> None:
+    st.session_state.pop("periodo_filtro", None)
+    st.session_state.pop("pessoas_filtro", None)
+
+
+def mostrar_filtros(catalogo: list[dict]) -> list[dict]:
+    with st.container(border=True):
+        st.markdown("#### Filtrar fotos")
+
+        if not catalogo:
+            st.caption("Os filtros estarão disponíveis quando houver fotos.")
+            return []
+
+        datas = [datetime.fromisoformat(foto["data"]).date() for foto in catalogo]
+        menor_data, maior_data = min(datas), max(datas)
+        pessoas = sorted(
+            {
+                rosto["nome"]
+                for foto in catalogo
+                for rosto in foto["rostos"]
+                if rosto.get("nome")
+            }
+        )
+
+        coluna_data, coluna_pessoas = st.columns(2, gap="medium")
+        with coluna_data:
+            periodo = st.date_input(
+                "Período",
+                value=(menor_data, maior_data),
+                min_value=menor_data,
+                max_value=maior_data,
+                format="DD/MM/YYYY",
+                key="periodo_filtro",
+            )
+        with coluna_pessoas:
+            pessoas_selecionadas = st.multiselect(
+                "Pessoas",
+                options=pessoas,
+                placeholder="Todas as pessoas",
+                disabled=not pessoas,
+                key="pessoas_filtro",
+            )
+
+        if isinstance(periodo, tuple) and periodo:
+            data_inicial = periodo[0]
+            data_final = periodo[-1]
+        elif periodo:
+            data_inicial = data_final = periodo
+        else:
+            data_inicial, data_final = menor_data, maior_data
+
+        fotos_filtradas = []
+        for foto in catalogo:
+            data_foto = datetime.fromisoformat(foto["data"]).date()
+            nomes_foto = {
+                rosto["nome"] for rosto in foto["rostos"] if rosto.get("nome")
+            }
+            corresponde_data = data_inicial <= data_foto <= data_final
+            corresponde_pessoa = not pessoas_selecionadas or bool(
+                nomes_foto.intersection(pessoas_selecionadas)
+            )
+            if corresponde_data and corresponde_pessoa:
+                fotos_filtradas.append(foto)
+
+        filtros_ativos = (
+            data_inicial != menor_data
+            or data_final != maior_data
+            or bool(pessoas_selecionadas)
+        )
+        coluna_resultado, coluna_limpar = st.columns(
+            [4, 1], vertical_alignment="center"
+        )
+        with coluna_resultado:
+            st.caption(
+                f"Exibindo {len(fotos_filtradas)} de {len(catalogo)} foto(s)."
+            )
+        with coluna_limpar:
+            st.button(
+                "Limpar filtros",
+                disabled=not filtros_ativos,
+                on_click=limpar_filtros,
+                width="stretch",
+            )
+
+    return fotos_filtradas
+
+
 def mostrar_grade(catalogo: list[dict]) -> None:
     if not catalogo:
         st.info("Adicione imagens para começar a galeria.")

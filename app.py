@@ -399,7 +399,12 @@ with st.container(border=True):
         st.session_state.mensagem_upload = mensagem
         st.rerun()
 
-mostrar_grade(catalogo)
+catalogo_filtrado = mostrar_filtros(catalogo)
+
+if catalogo and not catalogo_filtrado:
+    st.info("Nenhuma foto corresponde aos filtros selecionados.")
+else:
+    mostrar_grade(catalogo_filtrado)
 
 if foto_selecionada:
     mostrar_detalhes(foto_selecionada, catalogo)

@@ -62,6 +62,13 @@ def criar_imagem_anotada(foto: dict) -> Image.Image:
     return imagem
 
 
+def codificar_imagem(imagem: Image.Image) -> str:
+    """Converte a imagem anotada para exibição dentro do modal."""
+    memoria = BytesIO()
+    imagem.save(memoria, format="JPEG", quality=92)
+    return b64encode(memoria.getvalue()).decode("ascii")
+
+
 def fechar_modal() -> None:
     st.query_params.clear()
 
@@ -76,7 +83,16 @@ def mostrar_detalhes(foto: dict, catalogo: list[dict]) -> None:
 
     coluna_imagem, coluna_identificacao = st.columns([3, 2], gap="large")
     with coluna_imagem:
-        st.image(criar_imagem_anotada(foto), width="stretch")
+        imagem = codificar_imagem(criar_imagem_anotada(foto))
+        st.markdown(
+            f"""
+            <div class="visualizacao-modal">
+                <img src="data:image/jpeg;base64,{imagem}"
+                     alt="Foto com rostos detectados">
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
     with coluna_identificacao:
         mostrar_formulario_identificacao(foto, catalogo)
@@ -339,6 +355,26 @@ st.markdown(
     }
     [data-testid="stFileUploaderDropzone"] {
         border-radius: 0.75rem;
+    }
+    .visualizacao-modal {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        height: clamp(360px, 58vh, 640px);
+        padding: 0.75rem;
+        overflow: hidden;
+        background: rgba(128, 128, 128, 0.08);
+        border: 1px solid rgba(128, 128, 128, 0.18);
+        border-radius: 0.75rem;
+    }
+    .visualizacao-modal img {
+        display: block;
+        width: auto;
+        height: auto;
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain;
     }
     </style>
     """,

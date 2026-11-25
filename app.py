@@ -128,9 +128,7 @@ def limpar_filtros() -> None:
 
 
 def mostrar_filtros(catalogo: list[dict]) -> list[dict]:
-    with st.container(border=True):
-        st.markdown("#### Filtrar fotos")
-
+    with st.expander("Filtrar fotos"):
         if not catalogo:
             st.caption("Os filtros estarão disponíveis quando houver fotos.")
             return []
@@ -363,8 +361,7 @@ if identificador_foto:
 if mensagem := st.session_state.pop("mensagem_upload", None):
     st.success(mensagem)
 
-with st.container(border=True):
-    st.markdown("#### Adicionar fotos")
+with st.expander("Adicionar fotos", expanded=not catalogo):
     arquivos = st.file_uploader(
         "Arraste ou selecione uma ou mais imagens",
         type=["jpg", "jpeg", "png", "webp"],
